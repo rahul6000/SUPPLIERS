@@ -1888,21 +1888,9 @@ else:
                     else:
                         st.markdown(f'<div style="text-align: left; margin: 10px 0;"><div style="background: #f0f2f6; color: #333; padding: 8px 12px; border-radius: 15px; display: inline-block; max-width: 80%;">{message["content"]}<br><small style="opacity: 0.6;">{timestamp}</small></div></div>', unsafe_allow_html=True)
 
-        # Enhanced chat input - submits on Enter
-        user_input = st.chat_input("💬 Ask me about products and suppliers... (Press Enter to send)")
-        
         # Process user input (either from chat input or example buttons)
-        if user_input or example_input:
-            query = user_input or example_input
-            
-            # Track recent searches (only for actual user input, not example buttons)
-            if user_input and user_input.strip():
-                # Add to recent searches (avoid duplicates and limit to 10)
-                if user_input not in st.session_state.recent_searches:
-                    st.session_state.recent_searches.append(user_input)
-                    # Keep only last 10 searches
-                    if len(st.session_state.recent_searches) > 10:
-                        st.session_state.recent_searches = st.session_state.recent_searches[-10:]
+        if example_input:
+            query = example_input
             
             # Add user message
             st.session_state.messages.append({"role": "user", "content": query, "timestamp": datetime.now().strftime("%H:%M:%S")})
@@ -1966,6 +1954,33 @@ else:
                 st.session_state.buttons_hidden = False
                 st.session_state.uploader_key += 1  # Reset file uploader
                 st.rerun()
+
+# Chat input outside of any containers (must be at top level)
+if not st.session_state.show_analytics:
+    # Enhanced chat input - submits on Enter  
+    user_input = st.chat_input("💬 Ask me about products and suppliers... (Press Enter to send)")
+    
+    # Process chat input
+    if user_input:
+        # Add to recent searches (avoid duplicates and limit to 10)
+        if user_input.strip() and user_input not in st.session_state.recent_searches:
+            st.session_state.recent_searches.append(user_input)
+            # Keep only last 10 searches
+            if len(st.session_state.recent_searches) > 10:
+                st.session_state.recent_searches = st.session_state.recent_searches[-10:]
+        
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": user_input, "timestamp": datetime.now().strftime("%H:%M:%S")})
+        
+        # Get AI response
+        with st.spinner("🤖 AI is thinking..."):
+            ai_response = ai_chat_response(user_input)
+        
+        # Add AI response
+        st.session_state.messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.now().strftime("%H:%M:%S")})
+        
+        # Rerun to show updated conversation
+        st.rerun()
 
     # Footer
     st.markdown("---")
