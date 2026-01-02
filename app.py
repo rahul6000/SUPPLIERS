@@ -103,6 +103,10 @@ if 'bulk_processing_status' not in st.session_state:
     st.session_state.bulk_processing_status = 'idle'  # idle, processing, completed
 if 'show_analytics' not in st.session_state:
     st.session_state.show_analytics = False
+if 'pending_query' not in st.session_state:
+    st.session_state.pending_query = None
+if 'ai_response_cache' not in st.session_state:
+    st.session_state.ai_response_cache = {}
 
 st.title("📄 Supplier Invoice Processing System")
 
@@ -112,15 +116,17 @@ with col1:
     if st.button("📄 Invoice Processing", 
                  use_container_width=True, 
                  type="primary" if not st.session_state.show_analytics else "secondary"):
-        st.session_state.show_analytics = False
-        st.rerun()
+        if st.session_state.show_analytics:  # Only rerun if actually changing
+            st.session_state.show_analytics = False
+            st.rerun()
 
 with col2:
     if st.button("📊 Analytics Dashboard", 
                  use_container_width=True, 
                  type="primary" if st.session_state.show_analytics else "secondary"):
-        st.session_state.show_analytics = True
-        st.rerun()
+        if not st.session_state.show_analytics:  # Only rerun if actually changing
+            st.session_state.show_analytics = True
+            st.rerun()
 
 # Status indicator
 col1, col2, col3 = st.columns([1, 1, 2])
@@ -1226,6 +1232,11 @@ def ai_chat_response(user_query):
     if not database_service:
         return "❌ Database not available. Please check your database connection."
     
+    # Check cache first to improve performance
+    cache_key = user_query.lower().strip()
+    if cache_key in st.session_state.ai_response_cache:
+        return st.session_state.ai_response_cache[cache_key]
+    
     try:
         # Get recent products and suppliers for context
         supabase = database_service.supplier_manager.supabase
@@ -1378,7 +1389,17 @@ Provide a precise response based ONLY on what the user requested.
             temperature=0.3  # Lower temperature for more precise responses
         )
         
-        return response.choices[0].message.content
+        ai_response = response.choices[0].message.content
+        
+        # Cache the response to improve performance (limit cache size)
+        if len(st.session_state.ai_response_cache) > 20:  # Limit cache size
+            # Remove oldest entry
+            oldest_key = next(iter(st.session_state.ai_response_cache))
+            del st.session_state.ai_response_cache[oldest_key]
+        
+        st.session_state.ai_response_cache[cache_key] = ai_response
+        
+        return ai_response
         
     except Exception as e:
         import traceback
@@ -1888,22 +1909,10 @@ else:
                     else:
                         st.markdown(f'<div style="text-align: left; margin: 10px 0;"><div style="background: #f0f2f6; color: #333; padding: 8px 12px; border-radius: 15px; display: inline-block; max-width: 80%;">{message["content"]}<br><small style="opacity: 0.6;">{timestamp}</small></div></div>', unsafe_allow_html=True)
 
-        # Process user input (either from chat input or example buttons)
+        # Process user input from example buttons
         if example_input:
-            query = example_input
-            
-            # Add user message
-            st.session_state.messages.append({"role": "user", "content": query, "timestamp": datetime.now().strftime("%H:%M:%S")})
-            
-            # Get AI response
-            with st.spinner("🤖 AI is thinking..."):
-                ai_response = ai_chat_response(query)
-            
-            # Add AI response
-            st.session_state.messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.now().strftime("%H:%M:%S")})
-            
-            # Rerun to show updated conversation
-            st.rerun()
+            # Add to session state to be processed by the global chat input handler
+            st.session_state.pending_query = example_input
     
     # Show bulk extractions if any
     if st.session_state.bulk_extractions:
@@ -1960,27 +1969,43 @@ if not st.session_state.show_analytics:
     # Enhanced chat input - submits on Enter  
     user_input = st.chat_input("💬 Ask me about products and suppliers... (Press Enter to send)")
     
-    # Process chat input
-    if user_input:
-        # Add to recent searches (avoid duplicates and limit to 10)
-        if user_input.strip() and user_input not in st.session_state.recent_searches:
-            st.session_state.recent_searches.append(user_input)
-            # Keep only last 10 searches
-            if len(st.session_state.recent_searches) > 10:
-                st.session_state.recent_searches = st.session_state.recent_searches[-10:]
+    # Check for pending query from example buttons
+    pending_query = st.session_state.get('pending_query', None)
+    if pending_query:
+        st.session_state.pending_query = None  # Clear it immediately
+        user_input = pending_query  # Process it as if it was typed
+    
+    # Process chat input (avoid rerun loops)
+    if user_input and user_input.strip():
+        query_to_process = user_input.strip()
         
-        # Add user message
-        st.session_state.messages.append({"role": "user", "content": user_input, "timestamp": datetime.now().strftime("%H:%M:%S")})
-        
-        # Get AI response
-        with st.spinner("🤖 AI is thinking..."):
-            ai_response = ai_chat_response(user_input)
-        
-        # Add AI response
-        st.session_state.messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.now().strftime("%H:%M:%S")})
-        
-        # Rerun to show updated conversation
-        st.rerun()
+        # Prevent duplicate processing
+        last_message = st.session_state.messages[-1] if st.session_state.messages else {}
+        if last_message.get('role') == 'user' and last_message.get('content') == query_to_process:
+            pass  # Skip duplicate
+        else:
+            # Add to recent searches (avoid duplicates and limit to 10)
+            if query_to_process not in st.session_state.recent_searches:
+                st.session_state.recent_searches.append(query_to_process)
+                # Keep only last 10 searches
+                if len(st.session_state.recent_searches) > 10:
+                    st.session_state.recent_searches = st.session_state.recent_searches[-10:]
+            
+            # Add user message
+            st.session_state.messages.append({"role": "user", "content": query_to_process, "timestamp": datetime.now().strftime("%H:%M:%S")})
+            
+            # Get AI response
+            try:
+                with st.spinner("🤖 AI is thinking..."):
+                    ai_response = ai_chat_response(query_to_process)
+                
+                # Add AI response
+                st.session_state.messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.now().strftime("%H:%M:%S")})
+                
+                # Use experimental_rerun to avoid infinite loops
+                st.rerun()
+            except Exception as e:
+                st.error(f"AI Error: {e}")
 
     # Footer
     st.markdown("---")
