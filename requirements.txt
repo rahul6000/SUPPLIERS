@@ -1,0 +1,13 @@
+# Dependencies for AI Supplier Agent - Enterprise Edition
+supabase
+openai
+pdfplumber
+streamlit
+pandas
+python-dotenv
+
+# Enterprise features dependencies
+plotly>=5.17.0
+openpyxl>=3.1.2
+requests>=2.31.0
+bcrypt>=4.1.0
