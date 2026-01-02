@@ -8,6 +8,15 @@ Simple Supplier Invoice Processing System with AI Chat
 """
 
 import streamlit as st
+
+# Configure page FIRST - must be the very first Streamlit command
+st.set_page_config(
+    page_title="Invoice Processing System",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 import os
 import sys
 import tempfile
@@ -34,17 +43,10 @@ database_service = None
 if DATABASE_ENABLED:
     try:
         database_service = DatabaseService()
-        st.success("✅ Connected to database")
+        # Database connection success will be shown later in the UI
     except Exception as e:
-        st.error(f"❌ Database connection failed: {e}")
-
-# Configure page
-st.set_page_config(
-    page_title="Invoice Processing System",
-    page_icon="📄",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+        # Database connection error will be shown later in the UI
+        database_service = None
 
 # Initialize session state first
 if 'current_extraction' not in st.session_state:
