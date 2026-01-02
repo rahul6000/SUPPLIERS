@@ -1882,21 +1882,24 @@ else:
         st.markdown("### 🤖 AI Assistant")
         
         # Example queries for new users
-        example_input = None
         if not st.session_state.messages:
             st.markdown("💭 *Ask me about products, prices, suppliers, or search for specific items...*")
             st.markdown("**Try these examples:**")
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("🔍 Show me 7oz cups", key="example1"):
-                    example_input = "7oz cups"
+                    st.session_state.pending_query = "7oz cups"
+                    st.rerun()
                 if st.button("💰 8oz ripple wall original prices", key="example2"):
-                    example_input = "8oz ripple wall original prices"
+                    st.session_state.pending_query = "8oz ripple wall original prices"
+                    st.rerun()
             with col2:
                 if st.button("📦 All paper cup sizes", key="example3"):
-                    example_input = "all paper cup sizes"
+                    st.session_state.pending_query = "all paper cup sizes"
+                    st.rerun()
                 if st.button("🏢 Products from MAC Global", key="example4"):
-                    example_input = "products from MAC Global"
+                    st.session_state.pending_query = "products from MAC Global"
+                    st.rerun()
         
         # Show chat history in a more visually appealing way with timestamps
         if st.session_state.messages:
@@ -1909,11 +1912,6 @@ else:
                     else:
                         st.markdown(f'<div style="text-align: left; margin: 10px 0;"><div style="background: #f0f2f6; color: #333; padding: 8px 12px; border-radius: 15px; display: inline-block; max-width: 80%;">{message["content"]}<br><small style="opacity: 0.6;">{timestamp}</small></div></div>', unsafe_allow_html=True)
 
-        # Process user input from example buttons
-        if example_input:
-            # Add to session state to be processed by the global chat input handler
-            st.session_state.pending_query = example_input
-    
     # Show bulk extractions if any
     if st.session_state.bulk_extractions:
         st.markdown("---")
@@ -1979,33 +1977,42 @@ if not st.session_state.show_analytics:
     if user_input and user_input.strip():
         query_to_process = user_input.strip()
         
-        # Prevent duplicate processing
-        last_message = st.session_state.messages[-1] if st.session_state.messages else {}
-        if last_message.get('role') == 'user' and last_message.get('content') == query_to_process:
-            pass  # Skip duplicate
-        else:
-            # Add to recent searches (avoid duplicates and limit to 10)
-            if query_to_process not in st.session_state.recent_searches:
-                st.session_state.recent_searches.append(query_to_process)
-                # Keep only last 10 searches
-                if len(st.session_state.recent_searches) > 10:
-                    st.session_state.recent_searches = st.session_state.recent_searches[-10:]
-            
-            # Add user message
-            st.session_state.messages.append({"role": "user", "content": query_to_process, "timestamp": datetime.now().strftime("%H:%M:%S")})
-            
-            # Get AI response
-            try:
-                with st.spinner("🤖 AI is thinking..."):
-                    ai_response = ai_chat_response(query_to_process)
+        try:
+            # Prevent duplicate processing
+            last_message = st.session_state.messages[-1] if st.session_state.messages else {}
+            if last_message.get('role') == 'user' and last_message.get('content') == query_to_process:
+                pass  # Skip duplicate
+            else:
+                # Add to recent searches (avoid duplicates and limit to 10)
+                if query_to_process not in st.session_state.recent_searches:
+                    st.session_state.recent_searches.append(query_to_process)
+                    # Keep only last 10 searches
+                    if len(st.session_state.recent_searches) > 10:
+                        st.session_state.recent_searches = st.session_state.recent_searches[-10:]
                 
-                # Add AI response
-                st.session_state.messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.now().strftime("%H:%M:%S")})
+                # Add user message
+                st.session_state.messages.append({"role": "user", "content": query_to_process, "timestamp": datetime.now().strftime("%H:%M:%S")})
                 
-                # Use experimental_rerun to avoid infinite loops
-                st.rerun()
-            except Exception as e:
-                st.error(f"AI Error: {e}")
+                # Get AI response with error handling
+                try:
+                    with st.spinner("🤖 AI is thinking..."):
+                        ai_response = ai_chat_response(query_to_process)
+                    
+                    # Add AI response
+                    st.session_state.messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.now().strftime("%H:%M:%S")})
+                    
+                    # Use experimental_rerun to avoid infinite loops
+                    st.rerun()
+                except Exception as ai_error:
+                    st.error(f"🤖 AI Error: {ai_error}")
+                    # Add error message to chat
+                    st.session_state.messages.append({"role": "assistant", "content": f"❌ Sorry, I encountered an error: {ai_error}", "timestamp": datetime.now().strftime("%H:%M:%S")})
+                    
+        except Exception as general_error:
+            st.error(f"💥 Chat Error: {general_error}")
+            # Reset pending query to prevent stuck state
+            if 'pending_query' in st.session_state:
+                st.session_state.pending_query = None
 
     # Footer
     st.markdown("---")
