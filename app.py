@@ -17,6 +17,98 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Add dark theme CSS fixes for better text visibility
+st.markdown("""
+<style>
+/* Dark theme text and element fixes */
+[data-theme="dark"] {
+    --text-color: #ffffff;
+    --background-color: #0e1117;
+    --border-color: #30363d;
+    --secondary-bg: #262730;
+}
+
+/* Fix dark theme text visibility */
+[data-theme="dark"] .stMarkdown,
+[data-theme="dark"] .stText,
+[data-theme="dark"] .element-container,
+[data-theme="dark"] .stSelectbox label,
+[data-theme="dark"] .stTextInput label,
+[data-theme="dark"] .stTextArea label,
+[data-theme="dark"] .stNumberInput label,
+[data-theme="dark"] .stDateInput label,
+[data-theme="dark"] .stTimeInput label,
+[data-theme="dark"] .stMultiSelect label,
+[data-theme="dark"] .stSlider label,
+[data-theme="dark"] .stCheckbox label,
+[data-theme="dark"] .stRadio label,
+[data-theme="dark"] p,
+[data-theme="dark"] span,
+[data-theme="dark"] div {
+    color: #ffffff !important;
+}
+
+/* Fix metric values and labels in dark theme */
+[data-theme="dark"] .metric-container,
+[data-theme="dark"] .metric-container div,
+[data-theme="dark"] .metric-container span,
+[data-theme="dark"] [data-testid="metric-container"] div {
+    color: #ffffff !important;
+}
+
+/* Fix table text in dark theme */
+[data-theme="dark"] .stDataFrame,
+[data-theme="dark"] .stTable,
+[data-theme="dark"] table,
+[data-theme="dark"] th,
+[data-theme="dark"] td {
+    color: #ffffff !important;
+    background-color: #262730 !important;
+}
+
+/* Fix button text in dark theme */
+[data-theme="dark"] .stButton button {
+    color: #ffffff !important;
+    background-color: #262730 !important;
+    border: 1px solid #30363d !important;
+}
+
+/* Fix sidebar text in dark theme */
+[data-theme="dark"] .css-1d391kg,
+[data-theme="dark"] .css-1cypcdb,
+[data-theme="dark"] .sidebar-content {
+    color: #ffffff !important;
+}
+
+/* Fix progress bar text in dark theme */
+[data-theme="dark"] .stProgress > div > div {
+    color: #ffffff !important;
+}
+
+/* Fix file uploader text in dark theme */
+[data-theme="dark"] .stFileUploader label,
+[data-theme="dark"] .uploadedFile {
+    color: #ffffff !important;
+}
+
+/* Fix warning and info messages in dark theme */
+[data-theme="dark"] .stAlert,
+[data-theme="dark"] .stWarning,
+[data-theme="dark"] .stInfo,
+[data-theme="dark"] .stSuccess,
+[data-theme="dark"] .stError {
+    color: #ffffff !important;
+}
+
+/* Ensure readability for specific elements */
+[data-theme="dark"] .stSelectbox > div > div,
+[data-theme="dark"] .stMultiSelect > div > div {
+    background-color: #262730 !important;
+    color: #ffffff !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 import os
 import sys
 import tempfile
@@ -430,6 +522,10 @@ def process_document(uploaded_file):
 
 def process_bulk_documents(uploaded_files):
     """Process multiple documents with progress tracking"""
+    if not uploaded_files:
+        st.error("❌ No files provided for bulk processing")
+        return
+        
     try:
         st.session_state.bulk_processing_status = 'processing'
         st.session_state.bulk_extractions = []
@@ -438,29 +534,49 @@ def process_bulk_documents(uploaded_files):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
+        processed_count = 0
+        
         for i, uploaded_file in enumerate(uploaded_files):
-            # Update progress
-            progress = (i + 1) / len(uploaded_files)
-            progress_bar.progress(progress)
-            status_text.text(f"Processing {i+1}/{len(uploaded_files)}: {uploaded_file.name}")
-            
-            # Process individual file
-            result = process_single_file_bulk(uploaded_file)
-            if result:
-                st.session_state.bulk_extractions.append(result)
+            try:
+                # Update progress
+                progress = (i + 1) / len(uploaded_files)
+                progress_bar.progress(progress)
+                status_text.text(f"Processing {i+1}/{len(uploaded_files)}: {uploaded_file.name}")
+                
+                # Process individual file
+                result = process_single_file_bulk(uploaded_file)
+                if result:
+                    st.session_state.bulk_extractions.append(result)
+                    processed_count += 1
+            except Exception as file_error:
+                st.warning(f"⚠️ Failed to process {uploaded_file.name}: {file_error}")
+                continue
         
         st.session_state.bulk_processing_status = 'completed'
         progress_bar.progress(1.0)
-        status_text.text(f"✅ Completed! Processed {len(st.session_state.bulk_extractions)}/{len(uploaded_files)} files successfully")
-        st.success(f"🎉 Bulk processing completed! {len(st.session_state.bulk_extractions)} files ready for review")
+        status_text.text(f"✅ Completed! Processed {processed_count}/{len(uploaded_files)} files successfully")
+        
+        if processed_count > 0:
+            st.success(f"🎉 Bulk processing completed! {processed_count} files ready for review")
+        else:
+            st.error("❌ No files were processed successfully")
         
     except Exception as e:
         st.session_state.bulk_processing_status = 'idle'
         st.error(f"❌ Bulk processing failed: {e}")
+        import traceback
+        st.error(f"Debug info: {traceback.format_exc()}")
 
 def process_single_file_bulk(uploaded_file):
-    """Process a single file for bulk processing (non-interactive)"""
+    """Process a single file for bulk processing (non-interactive) with enhanced error handling"""
     try:
+        if not uploaded_file or uploaded_file.size == 0:
+            return None
+            
+        # Check file size limit (50MB)
+        if uploaded_file.size > 50 * 1024 * 1024:
+            return None
+        
         # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
             tmp_file.write(uploaded_file.getbuffer())
@@ -470,6 +586,11 @@ def process_single_file_bulk(uploaded_file):
         pdf_text = extract_text_from_pdf(temp_path)
         
         if not pdf_text or len(pdf_text.strip()) < 100:
+            # Clean up and return
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
             return None
             
         # Extract data using AI
@@ -492,6 +613,12 @@ def process_single_file_bulk(uploaded_file):
         return None
         
     except Exception as e:
+        # Clean up temp file if it exists
+        try:
+            if 'temp_path' in locals():
+                os.unlink(temp_path)
+        except:
+            pass
         return None
 
 def handle_bulk_approval():
@@ -1836,14 +1963,20 @@ else:
     mode_col1, mode_col2 = st.columns(2)
     with mode_col1:
         if st.button("📄 Single Mode", disabled=not st.session_state.bulk_mode):
-            st.session_state.bulk_mode = False
-            st.session_state.bulk_extractions = []
-            st.rerun()
+            try:
+                st.session_state.bulk_mode = False
+                st.session_state.bulk_extractions = []
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error switching to single mode: {e}")
     with mode_col2:
         if st.button("📦 Bulk Mode", disabled=st.session_state.bulk_mode):
-            st.session_state.bulk_mode = True
-            st.session_state.current_extraction = None
-            st.rerun()
+            try:
+                st.session_state.bulk_mode = True
+                st.session_state.current_extraction = None
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error switching to bulk mode: {e}")
     
     # Show current mode
     mode_icon = "📦" if st.session_state.bulk_mode else "📄"
@@ -1908,9 +2041,11 @@ else:
                 for message in st.session_state.messages[-10:]:  # Show last 10 messages
                     timestamp = message.get("timestamp", "")
                     if message["role"] == "user":
+                        # User messages - blue gradient background, white text
                         st.markdown(f'<div style="text-align: right; margin: 10px 0;"><div style="background: linear-gradient(90deg, #1f77b4, #87ceeb); color: white; padding: 8px 12px; border-radius: 15px; display: inline-block; max-width: 80%;"><b>You:</b> {message["content"]}<br><small style="opacity: 0.8;">{timestamp}</small></div></div>', unsafe_allow_html=True)
                     else:
-                        st.markdown(f'<div style="text-align: left; margin: 10px 0;"><div style="background: #f0f2f6; color: #333; padding: 8px 12px; border-radius: 15px; display: inline-block; max-width: 80%;">{message["content"]}<br><small style="opacity: 0.6;">{timestamp}</small></div></div>', unsafe_allow_html=True)
+                        # AI messages - adaptive background and text for light/dark theme
+                        st.markdown(f'<div style="text-align: left; margin: 10px 0;"><div style="background: var(--background-color, #f0f2f6); color: var(--text-color, #333); border: 1px solid var(--border-color, #ddd); padding: 8px 12px; border-radius: 15px; display: inline-block; max-width: 80%;">🤖 {message["content"]}<br><small style="opacity: 0.6;">{timestamp}</small></div></div>', unsafe_allow_html=True)
 
     # Show bulk extractions if any
     if st.session_state.bulk_extractions:
